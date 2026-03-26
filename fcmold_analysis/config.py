@@ -104,6 +104,9 @@ STRAND_CONFIGS = {
             "EMBR Current AC Left Master",
             "EMBR Current DC Left Master",
             "EMBR Current DC Left Bottom",
+            "EMBR Current AC Right Master",
+            "EMBR Current DC Right Master",
+            "EMBR Current DC Right Bottom",
         ],
     ),
     "23_5": StrandConfig(
@@ -114,6 +117,9 @@ STRAND_CONFIGS = {
             "EMBR Current AC Left Master",
             "EMBR Current DC Left Master",
             "EMBR Current DC Left Bottom",
+            "EMBR Current AC Right Master",
+            "EMBR Current DC Right Master",
+            "EMBR Current DC Right Bottom",
         ],
     ),
 }

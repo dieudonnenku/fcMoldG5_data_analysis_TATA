@@ -328,6 +328,78 @@ class SequenceAnalyzer:
                     tag = col.replace(" ", "_").replace("EMBR_Current_", "")
                     row[f"{tag}_avg [A]"] = t[col].mean()
                     row[f"{tag}_std [A]"] = t[col].std()
+
+            # --- Extended feature aggregation (per-sequence) ---
+            ext_mean_std = [
+                ("cheb_X1_bff", "cheb_X1_bff"), ("cheb_X2_bff", "cheb_X2_bff"),
+                ("cheb_X1_bfl", "cheb_X1_bfl"), ("cheb_X2_bfl", "cheb_X2_bfl"),
+                ("meniscus_FF_LF_asymmetry", "meniscus_FF_LF_asym"),
+                ("ML_LR_asymmetry", "ML_LR_asym"),
+                ("ML_LR_abs_asymmetry", "ML_LR_abs_asym"),
+            ]
+            for src, tag in ext_mean_std:
+                if src in t.columns:
+                    row[f"{tag}_mean"] = t[src].mean()
+                    row[f"{tag}_std"] = t[src].std()
+
+            ext_mean_only = [
+                ("cheb_X3_bff", "cheb_X3_bff_mean"), ("cheb_X4_bff", "cheb_X4_bff_mean"),
+                ("cheb_X3_bfl", "cheb_X3_bfl_mean"), ("cheb_X4_bfl", "cheb_X4_bfl_mean"),
+                ("abs_cheb_X1_bff", "abs_cheb_X1_bff_mean"),
+                ("abs_cheb_X2_bff", "abs_cheb_X2_bff_mean"),
+                ("abs_cheb_X1_bfl", "abs_cheb_X1_bfl_mean"),
+                ("abs_cheb_X2_bfl", "abs_cheb_X2_bfl_mean"),
+                ("cheb_X1_FF_LF_diff", "cheb_X1_FF_LF_diff_mean"),
+                ("cheb_X2_FF_LF_diff", "cheb_X2_FF_LF_diff_mean"),
+                ("meniscus_bff_avg", "meniscus_bff_avg_mean"),
+                ("meniscus_bfl_avg", "meniscus_bfl_avg_mean"),
+                ("meniscus_bff_range", "meniscus_bff_range_mean"),
+                ("meniscus_bfl_range", "meniscus_bfl_range_mean"),
+            ]
+            for src, tag in ext_mean_only:
+                if src in t.columns:
+                    row[tag] = t[src].mean()
+
+            # Argon flow (split SEN vs Stopper)
+            if "Argon Flow SEN" in t.columns:
+                row["ArFlow_SEN_avg"] = t["Argon Flow SEN"].mean()
+            if "Argon Flow Stopper" in t.columns:
+                row["ArFlow_Stopper_avg"] = t["Argon Flow Stopper"].mean()
+
+            # Process context
+            if "castingLength" in t.columns:
+                row["castingLength_avg"] = t["castingLength"].mean()
+                row["castingLength_std"] = t["castingLength"].std()
+            if "SEN_type" in t.columns:
+                row["SEN_type"] = t["SEN_type"].mode().iloc[0] if len(t["SEN_type"].dropna()) else np.nan
+            if "castMode" in t.columns:
+                row["castMode"] = t["castMode"].mode().iloc[0] if len(t["castMode"].dropna()) else np.nan
+            if "superHeat" in t.columns:
+                row["superHeat_avg"] = t["superHeat"].mean()
+            if "tundishTemperature" in t.columns:
+                row["tundishTemp_avg"] = t["tundishTemperature"].mean()
+
+            # EMBR absolute averages (for potential confounding analysis)
+            embr_abs = [
+                ("EMBR Current DC Left Bottom", "EMBR_DC_Bottom_L_avg"),
+                ("EMBR Current AC Left Master", "EMBR_AC_Master_L_avg"),
+                ("EMBR Current DC Left Master", "EMBR_DC_Master_L_avg"),
+            ]
+            for src, tag in embr_abs:
+                if src in t.columns:
+                    row[tag] = t[src].mean()
+
+            # EMBR L-R per-sequence stats
+            embr_lr = [
+                ("EMBR_DC_Bottom_LR_diff", "EMBR_DC_Bottom_LR"),
+                ("EMBR_AC_Master_LR_diff", "EMBR_AC_Master_LR"),
+                ("EMBR_DC_Master_LR_diff", "EMBR_DC_Master_LR"),
+            ]
+            for src, tag in embr_lr:
+                if src in t.columns:
+                    row[f"{tag}_mean"] = t[src].mean()
+                    row[f"{tag}_std"] = t[src].std()
+
             rows.append(row)
 
         df_seq = pd.DataFrame(rows)

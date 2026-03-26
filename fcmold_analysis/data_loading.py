@@ -69,24 +69,32 @@ def add_plain_timestamp(df: SparkDataFrame) -> SparkDataFrame:
 def get_expert_files(folder_path: str) -> Tuple[List[str], List[str]]:
     """Recursively find boExpert and dtExpert files in a DBFS folder.
 
-    Returns ``(bo_expert_files, dt_expert_files)``.
+    Returns ``(bo_expert_files, dt_expert_files)`` as ``dbfs:/...`` paths.
+    Uses ``os.walk`` on ``/dbfs/`` mount to avoid ``dbutils`` dependency.
     """
-    # dbutils is injected by the Databricks runtime
+    import os
+
     bo_expert_files: List[str] = []
     dt_expert_files: List[str] = []
 
-    def walk(path: str):
-        for fi in dbutils.fs.ls(path):  # noqa: F821 – Databricks global
-            if fi.path.endswith("/"):
-                walk(fi.path)
-            else:
-                name = fi.name
-                if "boExpert" in name:
-                    bo_expert_files.append(fi.path)
-                elif "dtExpert" in name:
-                    dt_expert_files.append(fi.path)
+    # Convert dbfs:/ path to local /dbfs/ mount
+    if folder_path.startswith("dbfs:/"):
+        local_root = "/dbfs/" + folder_path[len("dbfs:/"):]
+    elif folder_path.startswith("/dbfs/"):
+        local_root = folder_path
+    else:
+        local_root = folder_path
 
-    walk(folder_path)
+    for dirpath, _, filenames in os.walk(local_root):
+        for fname in filenames:
+            local_full = os.path.join(dirpath, fname)
+            # Convert back to dbfs:/ path for Spark
+            dbfs_path = "dbfs:/" + local_full[len("/dbfs/"):]
+            if "boExpert" in fname:
+                bo_expert_files.append(dbfs_path)
+            elif "dtExpert" in fname:
+                dt_expert_files.append(dbfs_path)
+
     return bo_expert_files, dt_expert_files
 
 
@@ -98,10 +106,12 @@ def load_expert_files(file_paths: List[str]) -> SparkDataFrame | None:
     parquet_files = [f for f in file_paths if f.lower().endswith(".parquet")]
     csv_files = [f for f in file_paths if f.lower().endswith(".csv")]
 
+    from pyspark.sql import SparkSession
+    spark = SparkSession.getActiveSession()
     if parquet_files:
-        df = spark.read.parquet(*parquet_files)  # noqa: F821 – Databricks global
+        df = spark.read.parquet(*parquet_files)
     elif csv_files:
-        df = spark.read.option("header", True).option("inferSchema", True).csv(csv_files)  # noqa: F821
+        df = spark.read.option("header", True).option("inferSchema", True).csv(csv_files)
     else:
         return None
 
@@ -185,7 +195,9 @@ class StrandDataLoader:
 
     def join_metadata(self, df_joined: SparkDataFrame) -> SparkDataFrame:
         self._log("Joining with metadata…")
-        df_meta = spark.read.csv(METADATA_PATH, header=True, inferSchema=True, sep=";")  # noqa: F821
+        from pyspark.sql import SparkSession
+        _spark = SparkSession.getActiveSession()
+        df_meta = _spark.read.csv(METADATA_PATH, header=True, inferSchema=True, sep=";")  # noqa: F821
 
         df_joined = df_joined.withColumn("PlainTimeStamp", F.col("plainTimeStamp").cast("timestamp"))
         strand_num = int(self.strand_config.strand_id.split("_")[1])
@@ -198,15 +210,16 @@ class StrandDataLoader:
         )
         self._log(f"  Metadata for Strand {strand_num}: {df_meta.count()} periods")
 
+        df_meta_sel = F.broadcast(df_meta.select(
+            F.col("Datetime start first heat").cast("timestamp").alias("_meta_start"),
+            F.col("Datetime start last heat").cast("timestamp").alias("_meta_end"),
+            "Quality casting",
+        ))
         cond = (
-            (df_joined["PlainTimeStamp"] >= df_meta["Datetime start first heat"])
-            & (df_joined["PlainTimeStamp"] <= df_meta["Datetime start last heat"])
+            (df_joined["PlainTimeStamp"] >= F.col("_meta_start"))
+            & (df_joined["PlainTimeStamp"] <= F.col("_meta_end"))
         )
-        df_out = df_joined.join(
-            df_meta.select("Datetime start first heat", "Datetime start last heat", "Quality casting"),
-            on=cond,
-            how="left",
-        )
+        df_out = df_joined.join(df_meta_sel, on=cond, how="left").drop("_meta_start", "_meta_end")
         total = df_out.count()
         matched = df_out.filter(F.col("Quality casting").isNotNull()).count()
         self._log(f"  After join: {total:,} rows, {matched:,} matched ({100*matched/total:.1f}%)")
@@ -229,11 +242,25 @@ class StrandDataLoader:
         self._log("Converting to Pandas…")
         time_col = "PlainTimeStamp" if "PlainTimeStamp" in df_spark.columns else "plainTimeStamp"
 
+        # Feature-engineered columns (added by engineer_features)
+        feat_cols = [
+            "meniscus_bff_avg", "meniscus_bfl_avg", "meniscus_FF_LF_asymmetry",
+            "meniscus_bff_range", "meniscus_bfl_range",
+            "cheb_X1_bff", "cheb_X2_bff", "cheb_X3_bff", "cheb_X4_bff",
+            "cheb_X1_bfl", "cheb_X2_bfl", "cheb_X3_bfl", "cheb_X4_bfl",
+            "abs_cheb_X1_bff", "abs_cheb_X2_bff", "abs_cheb_X1_bfl", "abs_cheb_X2_bfl",
+            "cheb_X1_FF_LF_diff", "cheb_X2_FF_LF_diff",
+            "EMBR_DC_Bottom_LR_diff", "EMBR_AC_Master_LR_diff", "EMBR_DC_Master_LR_diff",
+            "ML_LR_asymmetry", "ML_LR_abs_asymmetry",
+        ]
+        # Process context
+        context_cols = ["SEN_type", "castingLength", "castMode", "superHeat", "tundishTemperature"]
+
         wanted = [
             time_col, "castingSpeed", "moldWidth", "SENImmersionDepth",
             "Mold Level", "Mold Level Sensor Left", "Mold Level Sensor Right",
             "Argon Flow SEN", "Argon Flow Stopper", "Quality casting",
-        ] + self.strand_config.embr_current_cols
+        ] + self.strand_config.embr_current_cols + feat_cols + context_cols
         available = [c for c in wanted if c in df_spark.columns]
 
         df_pd = (
@@ -252,16 +279,30 @@ class StrandDataLoader:
 
     # -- full pipeline ------------------------------------------------------
 
-    def load_and_process(self) -> pd.DataFrame:
-        """Run the complete load → join → convert → filter → Pandas pipeline."""
+    def load_and_process(self, return_spark: bool = False):
+        """Run the complete load → join → convert → engineer → filter pipeline.
+
+        Parameters
+        ----------
+        return_spark : bool
+            If True, return ``(df_spark, df_pandas)`` where *df_spark* is the
+            feature-engineered Spark DF before Pandas conversion.  This is
+            useful for downstream Spark-native work (e.g. persisting to Delta).
+        """
+        from fcmold_analysis.feature_engineering import engineer_features
+
         self._log("Starting data-loading pipeline…")
         df_bo, df_dt = self.load_expert_data()
         df_bo_agg = self.aggregate_boexpert(df_bo)
         df_joined = self.join_expert_data(df_bo_agg, df_dt)
         df_meta = self.join_metadata(df_joined)
         self._log("Converting units…")
-        df_meta = convert_units(df_meta)
-        df_filt = self.apply_filters(df_meta)
+        df_conv = convert_units(df_meta)
+        self._log("Engineering features…")
+        df_feat = engineer_features(df_conv)
+        df_filt = self.apply_filters(df_feat)
         df_pd = self.to_pandas(df_filt)
         self._log("Data-loading pipeline complete.")
+        if return_spark:
+            return df_filt, df_pd
         return df_pd

@@ -1,5 +1,6 @@
 """Save analysis results as CSV / Parquet and generate summary reports."""
 
+import os
 import pandas as pd
 
 from fcmold_analysis.config import AnalysisConfig, StrandConfig, CONFIG
@@ -11,18 +12,17 @@ class ResultsExporter:
     def __init__(self, strand_config: StrandConfig):
         self.strand_config = strand_config
         self._prefix = f"[{strand_config.strand_name}]"
+        # Create output directories using local filesystem
         for d in [strand_config.figures_dir, strand_config.reports_dir, strand_config.data_dir]:
-            try:
-                dbutils.fs.mkdirs(d)  # noqa: F821 – Databricks global
-            except Exception:
-                pass
+            os.makedirs(d, exist_ok=True)
 
     def _log(self, msg: str):
         print(f"{self._prefix} {msg}")
 
     def save_dataframe(self, df: pd.DataFrame, base_name: str, fmt: str = "csv"):
         filename = self.strand_config.get_output_filename(base_name, fmt)
-        local = f"{self.strand_config.data_dir}/{filename}".replace("/dbfs", "")
+        local = f"{self.strand_config.data_dir}/{filename}"
+        os.makedirs(os.path.dirname(local), exist_ok=True)
         if fmt == "csv":
             df.to_csv(local, index=False)
         elif fmt == "parquet":
@@ -62,7 +62,8 @@ class ResultsExporter:
         text = "\n".join(lines)
 
         filename = self.strand_config.get_output_filename("summary_report", "txt")
-        local = f"{self.strand_config.reports_dir}/{filename}".replace("/dbfs", "")
+        local = f"{self.strand_config.reports_dir}/{filename}"
+        os.makedirs(os.path.dirname(local), exist_ok=True)
         with open(local, "w", encoding="utf-8") as fh:
             fh.write(text)
         self._log(f"Saved report: {filename}")
