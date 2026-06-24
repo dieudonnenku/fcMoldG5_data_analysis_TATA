@@ -1,0 +1,31 @@
+# Databricks / Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+*.egg-info/
+
+# Generated outputs (too large for git)
+figures/*.html
+figures/*.pptx
+figures/*.png
+reports/*.csv
+reports/*.docx
+
+# Databricks artifacts
+dbfs:/
+test_parquet/
+
+# Generated notebooks (output-only, not source)
+generate_onboarding_ppt.ipynb
+
+# HTML dashboards (generated, not source)
+*.html
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
