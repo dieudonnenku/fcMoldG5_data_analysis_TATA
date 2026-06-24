@@ -197,128 +197,15 @@ These are **domain parameters** — only change if the process changes:
 - **Extra libraries:** `mpl-scatter-density`, `astropy` (installed by cell 2 of Path B)
 - **For PPT generation:** `python-pptx` (installed by `generate_onboarding_ppt`)
 
-## Migration to Azure DevOps (New Workspace)
+## New Workspace Setup
 
-### Background
+After cloning this repo in a new workspace:
 
-This project previously lived in a GitHub-connected Databricks Repo at:
-```
-/Repos/dieudonne.nkulikiyimfura@se.abb.com/fcMoldG5_data_analysis_TATA/
-```
-That repo has `fcmold_analysis/` (8 modules) plus the Technical Report notebook.
+1. Update `src/config.py` → `WORKSPACE_ROOT` (your email)
+2. Update `src/config.py` → `DBFS_DATA_BASE` (if data is in a different location)
+3. Upload sensor data to DBFS (see Data Sources section above for expected paths)
+4. Run `test_pipeline` → all assertions should pass
+5. Run `run_pipeline` → verify end-to-end execution
 
-The current refactored version lives in:
-```
-/Users/dieudonne.nkulikiyimfura@se.abb.com/TATAIjmulden_FCMoldG5/
-```
-This is the version to push to Azure DevOps.
-
-### Step-by-Step Migration
-
-#### 1. Create Azure DevOps Repo
-- Go to Azure DevOps → Repos → New Repository
-- Name: `fcMoldG5-CC23-analysis` (or similar)
-- Initialize empty (no README, no .gitignore — we have our own)
-
-#### 2. Push This Project to Azure DevOps
-
-From a local machine (or Azure Cloud Shell):
-```bash
-# Clone the empty repo
-git clone https://dev.azure.com/<ORG>/<PROJECT>/_git/fcMoldG5-CC23-analysis
-cd fcMoldG5-CC23-analysis
-
-# Copy files from Databricks workspace (use databricks CLI)
-databricks workspace export-dir \
-  /Users/dieudonne.nkulikiyimfura@se.abb.com/TATAIjmulden_FCMoldG5 \
-  . --overwrite
-
-# Or manually copy: src/, notebooks, README.md, .gitignore
-git add .
-git commit -m "Initial commit: FC Mold G5 CC23 analysis (V3.0)"
-git push origin main
-```
-
-#### 3. Connect New Workspace to Azure DevOps
-
-In the new user's Databricks workspace:
-1. Settings → Git integration → Add Azure DevOps provider
-2. Authenticate with Azure AD / PAT
-3. Repos → Add Repo → paste the Azure DevOps clone URL
-4. It clones into `/Repos/<new_user_email>/fcMoldG5-CC23-analysis/`
-
-#### 4. Data Setup (CRITICAL — DBFS is NOT shared)
-
-DBFS is workspace-scoped. The new workspace CANNOT access your DBFS data.
-
-**Option A: Shared Azure Storage (recommended)**
-```
-1. Upload data to Azure Blob / ADLS Gen2:
-   az storage blob upload-batch \
-     --source /dbfs/FileStore/TATA_IJmuiden_CC23/data/ \
-     --destination <container>/TATA_IJmuiden_CC23/data/
-
-2. In new workspace, mount or use abfss:// path:
-   DBFS_DATA_BASE = "abfss://<container>@<account>.dfs.core.windows.net/TATA_IJmuiden_CC23/data"
-
-3. Update src/config.py with the new path
-```
-
-**Option B: Unity Catalog Volume (if shared metastore)**
-```
-1. Create a volume: CREATE VOLUME main.cc23_data.raw_sensor_data
-2. Upload: databricks fs cp -r dbfs:/FileStore/TATA_IJmuiden_CC23/data/ /Volumes/main/cc23_data/raw_sensor_data/
-3. Update config: DBFS_DATA_BASE = "/Volumes/main/cc23_data/raw_sensor_data"
-```
-
-**Option C: Copy to new workspace DBFS (quick but fragile)**
-```
-# From source workspace, download:
-databricks fs cp -r dbfs:/FileStore/TATA_IJmuiden_CC23/ ./local_copy/
-
-# In target workspace, upload:
-databricks fs cp -r ./local_copy/ dbfs:/FileStore/TATA_IJmuiden_CC23/
-```
-
-#### 5. New User Checklist
-
-After cloning the repo in the new workspace:
-
-- [ ] Update `src/config.py` → `WORKSPACE_ROOT` (their email)
-- [ ] Update `src/config.py` → `DBFS_DATA_BASE` (if using shared storage)
-- [ ] Update `explore_step_by_step` cell 3 → `project_root`
-- [ ] Verify `run_pipeline` resolves `src/` automatically (uses `os.getcwd()`)
-- [ ] Run `test_pipeline` → all assertions pass
-- [ ] Run `explore_step_by_step` → verify data loads correctly
-- [ ] (Optional) Run `generate_onboarding_ppt` → read the 19-slide PPT
-
-### Files to Include in Git
-
-```
-.gitignore
-README.md
-src/__init__.py
-src/config.py
-src/data_loading.py
-src/sequence_analysis.py
-src/disturbance_detection.py
-src/feature_engineering.py
-src/export.py
-src/visualization.py
-src/pipeline.py
-run_pipeline.ipynb
-explore_step_by_step.ipynb
-test_pipeline.ipynb
-generate_onboarding_ppt.ipynb
-EDA_data_grouping.ipynb          (archive, optional — large)
-```
-
-### Files NOT to Include (generated / data)
-
-```
-figures/                          (generated outputs)
-reports/                          (generated outputs)
-*.html                            (dashboards — regenerated from code)
-test_parquet/                     (test data)
-dbfs:/                            (artifact folder)
-```
+> **Note:** `run_pipeline` and `test_pipeline` use `os.getcwd()` to resolve `src/` —
+> no manual path configuration needed as long as you run from the repo root.
