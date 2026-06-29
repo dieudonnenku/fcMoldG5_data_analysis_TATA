@@ -1,38 +1,63 @@
-# FC Mold G5 - TATA IJmuiden CC23 Analysis
+# FC Mold G5 — TATA IJmuiden CC23 Analysis
 
 Mold level stability analysis for continuous casting machine CC23, Strands 5 and 6.
 
-## Project Structure
+## Repository Structure
 
 ```
-TATAIjmulden_FCMoldG5/
-├── README.md                      ← You are here
-├── run_pipeline.ipynb             ← Path A: production pipeline (imports src/, end-to-end)
-├── explore_step_by_step.ipynb     ← Path B: clean step-by-step exploration (25 cells)
-├── generate_onboarding_ppt.ipynb  ← Generates onboarding PowerPoint (19 slides)
-├── test_pipeline.ipynb            ← Validation and smoke tests
-├── EDA_data_grouping.ipynb        ← Archive: original EDA (157 cells, reference only)
+fcMoldG5_data_analysis_TATA/
+├── README.md                              ← You are here
+├── run_pipeline.ipynb                     ← Production pipeline (imports src/, end-to-end)
+├── test_pipeline.ipynb                    ← Validation and smoke tests
 │
-├── src/                           ← Production Python modules (single source of truth)
-│   ├── __init__.py
-│   ├── config.py                  ← ALL paths, thresholds, strand configs
-│   ├── data_loading.py            ← File discovery, Spark loading, unit conversion
-│   ├── sequence_analysis.py       ← Sliding window, SequenceAnalyzer class
-│   ├── disturbance_detection.py   ← Excursion, drift, bump, variability detectors
-│   ├── feature_engineering.py     ← Spark-derived features (FBG, Chebyshev, asymmetry)
-│   ├── export.py                  ← ResultsExporter (CSV, Parquet, text summary)
-│   ├── visualization.py           ← ReportVisualizer (all figures, optional PNG export)
-│   └── pipeline.py                ← StrandAnalysisPipeline orchestrator
+├── notebooks/
+│   └── exploratory/
+│       ├── EDA_data_grouping.ipynb        ← Original EDA (157 cells, reference only)
+│       └── explore_step_by_step.ipynb     ← Step-by-step exploration (25 cells)
 │
-├── figures/                       ← Generated plots (HTML, PNG, PPTX)
-└── reports/                       ← Exported CSVs, Word docs, summaries
+└── src/                                   ← Production Python modules (single source of truth)
+    ├── config.py                          ← ALL paths, thresholds, strand configs
+    ├── data_loading.py                    ← File discovery, Spark loading, unit conversion
+    ├── sequence_analysis.py               ← Sliding window, SequenceAnalyzer class
+    ├── disturbance_detection.py           ← Excursion, drift, bump, variability detectors
+    ├── feature_engineering.py             ← Spark-derived features (FBG, Chebyshev, asymmetry)
+    ├── export.py                          ← ResultsExporter (CSV, Parquet, text summary)
+    ├── visualization.py                   ← ReportVisualizer (all figures, optional PNG export)
+    └── pipeline.py                        ← StrandAnalysisPipeline orchestrator
+```
+
+## DBFS Storage Structure
+
+Data and results are organised under a product-centric hierarchy, ready for EAF and EMS expansion:
+
+```
+dbfs:/FileStore/
+├── Data/
+│   ├── FCMold/
+│   │   └── TATA_IJmuiden_CC23/            ← Raw sensor data (this project)
+│   │       └── data/
+│   │           ├── strand_5/              ← boExpert + dtExpert parquet files
+│   │           ├── strand_6/
+│   │           └── Castings_TSN_2025_April_May_merged.csv
+│   ├── EAF/                               ← Future: Electric Arc Furnace data
+│   └── EMS_installed_base/                ← Future: EMS installed base data
+│
+└── Results/
+    ├── FCMold/
+    │   └── TATA_IJmuiden_CC23/            ← Pipeline outputs (this project)
+    │       ├── figures/                   ← PNG plots + HTML interactive charts
+    │       ├── strand_23_5/               ← Per-strand CSVs, Parquet, text reports
+    │       ├── strand_23_6/
+    │       └── CastingGroups_ABB_April2026.xlsx
+    ├── EAF/                               ← Future
+    └── EMS_installed_base/                ← Future
 ```
 
 ## Two Execution Paths
 
 | | Path A (`run_pipeline`) | Path B (`explore_step_by_step`) |
 |--|------------------------|----------------------------------|
-| Cells | ~6 total | 25 total |
+| Cells | ~9 total | 25 total |
 | Speed | ~5 min end-to-end | Run section by section |
 | Use case | Production, CI/CD, batch runs | Debugging, learning, prototyping |
 | Code source | Imports from `src/` | Imports from `src/` (same code) |
@@ -57,9 +82,9 @@ SHOW_STABLE_TABLE = True     # Display filtered stable-sequence table
 
 No widgets — just edit the variables and Run All.
 
-## How to Run Path B (Step-by-Step Exploration)
+## Path B — Step-by-Step Exploration
 
-Open `explore_step_by_step.ipynb` — a clean 25-cell notebook.
+Open `notebooks/exploratory/explore_step_by_step.ipynb` — a clean 25-cell notebook.
 
 ### Prerequisites
 
@@ -115,11 +140,12 @@ Open `explore_step_by_step.ipynb` — a clean 25-cell notebook.
 | dtExpert | 1 Hz | EMBR currents, casting parameters |
 | Metadata CSV | per casting | Quality labels, start/end times |
 
-**DBFS paths:**
-- Strand 5: `dbfs:/FileStore/TATA_IJmuiden_CC23/data/strand_5`
-- Strand 6: `dbfs:/FileStore/TATA_IJmuiden_CC23/data/strand_6`
-- Metadata: `dbfs:/FileStore/TATA_IJmuiden_CC23/data/Castings_TSN_2025_April_May_merged.csv`
-- Grade mapping: `dbfs:/FileStore/TATAIjmulden_FCMoldG5/CastingGroups_ABB_April2026.xlsx`
+**DBFS paths (configured in `src/config.py`):**
+- Strand 5 data: `dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/strand_5`
+- Strand 6 data: `dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/strand_6`
+- Metadata: `dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/Castings_TSN_2025_April_May_merged.csv`
+- Outputs: `/dbfs/FileStore/Results/FCMold/TATA_IJmuiden_CC23`
+- Grade mapping: `/dbfs/FileStore/Results/FCMold/TATA_IJmuiden_CC23/CastingGroups_ABB_April2026.xlsx`
 
 ## Configuration
 
@@ -133,10 +159,9 @@ All thresholds are defined in `src/config.py` → `AnalysisConfig`. Key values:
 
 ## Related Assets
 
-- **Technical Report:** `/Repos/.../fcMoldG5_data_analysis_TATA/FC Mold G5 Technical Report CC23`
-- **Reusable package:** `src/` (9 modules — the single source of truth)
+- **Reusable package:** `src/` (8 modules — the single source of truth)
 - **Grade classification:** 19 TATA casting groups from `CastingGroups_ABB_April2026.xlsx`
-- **Onboarding PPT:** Run `generate_onboarding_ppt` → saves to `figures/onboarding_FC_Mold_G5.pptx`
+- **Original EDA:** `notebooks/exploratory/EDA_data_grouping.ipynb` (reference, 157 cells)
 
 ## Time Coverage
 
@@ -150,25 +175,25 @@ If you are setting up this project in a **new workspace** or under a **different
 
 | Variable | Current Value | What it is |
 |----------|--------------|------------|
-| `WORKSPACE_ROOT` | `/Workspace/Users/dieudonne.nkulikiyimfura@se.abb.com/TATAIjmulden_FCMoldG5` | Your project folder |
-| `DBFS_DATA_BASE` | `dbfs:/FileStore/TATA_IJmuiden_CC23/data` | Raw parquet/CSV sensor data |
-| `DBFS_OUTPUT_BASE` | `/dbfs/FileStore/TATAIjmulden_FCMoldG5` | Generated outputs (HTML, CSV, PNG) |
+| `WORKSPACE_ROOT` | `/Workspace/Users/dieudonne.nkulikiyimfura@se.abb.com/fcMoldG5_data_analysis_TATA` | Your project folder |
+| `DBFS_DATA_BASE` | `dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data` | Raw parquet/CSV sensor data |
+| `DBFS_OUTPUT_BASE` | `/dbfs/FileStore/Results/FCMold/TATA_IJmuiden_CC23` | Generated outputs (HTML, CSV, PNG) |
 | `METADATA_PATH` | Auto-derived from `DBFS_DATA_BASE` | Casting metadata CSV |
 | `GRADE_MAPPING_PATH` | Under `DBFS_OUTPUT_BASE` | Steel grade → casting group Excel |
 
 ### 2. `src/config.py` — Strand Data Paths
 
 ```python
-STRAND_CONFIGS["23_6"].data_path = "dbfs:/FileStore/TATA_IJmuiden_CC23/data/strand_6"
-STRAND_CONFIGS["23_5"].data_path = "dbfs:/FileStore/TATA_IJmuiden_CC23/data/strand_5"
+STRAND_CONFIGS["23_6"].data_path = "dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/strand_6"
+STRAND_CONFIGS["23_5"].data_path = "dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/strand_5"
 ```
 
 Change these if your data is in a different DBFS location or Unity Catalog volume.
 
-### 3. `explore_step_by_step` — `project_root`
+### 3. `notebooks/exploratory/explore_step_by_step` — `project_root`
 
 ```python
-project_root = "/Workspace/Users/<YOUR_EMAIL>/TATAIjmulden_FCMoldG5"
+project_root = "/Workspace/Users/<YOUR_EMAIL>/fcMoldG5_data_analysis_TATA"
 ```
 
 Update in cell 3 of `explore_step_by_step`.
@@ -186,9 +211,17 @@ These are **domain parameters** — only change if the process changes:
 ### 5. Adding a New Strand
 
 1. Add a new entry in `STRAND_CONFIGS` dict in `src/config.py`
-2. Upload the strand data to a DBFS folder
+2. Upload the strand data to `dbfs:/FileStore/Data/FCMold/<CUSTOMER>/data/strand_X`
 3. Set `data_path` to the new folder
 4. Set `embr_current_cols` to match the column names in that strand's data
+
+### 6. Adding a New Product (EAF / EMS)
+
+The DBFS structure is already prepared with placeholder directories:
+- Data: `dbfs:/FileStore/Data/<PRODUCT>/<CUSTOMER>/data/`
+- Results: `dbfs:/FileStore/Results/<PRODUCT>/<CUSTOMER>/`
+
+Create a new repo following the same `src/` pattern and update `DBFS_DATA_BASE` and `DBFS_OUTPUT_BASE` accordingly.
 
 ### Cluster Requirements
 
