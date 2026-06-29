@@ -60,7 +60,7 @@ class StrandConfig:
     data_path: str  # DBFS path to strand data
     embr_current_cols: List[str]
     vc_column: str = "castingSpeed"
-    output_base: str = "/dbfs/FileStore/TATAIjmulden_FCMoldG5"
+    output_base: str = "/dbfs/FileStore/Results/FCMold/TATA_IJmuiden_CC23"
 
     @property
     def output_dir(self) -> str:
@@ -94,7 +94,7 @@ STRAND_CONFIGS = {
     "23_6": StrandConfig(
         strand_id="23_6",
         strand_name="Strand 23-6",
-        data_path="dbfs:/FileStore/TATA_IJmuiden_CC23/data/strand_6",
+        data_path="dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/strand_6",
         embr_current_cols=[
             "EMBR Current AC Left Master",
             "EMBR Current DC Left Master",
@@ -104,7 +104,7 @@ STRAND_CONFIGS = {
     "23_5": StrandConfig(
         strand_id="23_5",
         strand_name="Strand 23-5",
-        data_path="dbfs:/FileStore/TATA_IJmuiden_CC23/data/strand_5",
+        data_path="dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data/strand_5",
         embr_current_cols=[
             "EMBR Current AC Left Master",
             "EMBR Current DC Left Master",
@@ -117,13 +117,13 @@ STRAND_CONFIGS = {
 # Path constants - CHANGE THESE WHEN SETTING UP A NEW ENVIRONMENT
 # ---------------------------------------------------------------------------
 # WORKSPACE_ROOT: where notebooks and src/ live (editable project folder)
-WORKSPACE_ROOT = "/Workspace/Users/dieudonne.nkulikiyimfura@se.abb.com/TATAIjmulden_FCMoldG5"
+WORKSPACE_ROOT = "/Workspace/Users/dieudonne.nkulikiyimfura@se.abb.com/fcMoldG5_data_analysis_TATA"
 
 # DBFS_DATA_BASE: where raw sensor data (boExpert/dtExpert parquet files) are stored
-DBFS_DATA_BASE = "dbfs:/FileStore/TATA_IJmuiden_CC23/data"
+DBFS_DATA_BASE = "dbfs:/FileStore/Data/FCMold/TATA_IJmuiden_CC23/data"
 
 # DBFS_OUTPUT_BASE: where generated figures, reports, and processed data go
-DBFS_OUTPUT_BASE = "/dbfs/FileStore/TATAIjmulden_FCMoldG5"
+DBFS_OUTPUT_BASE = "/dbfs/FileStore/Results/FCMold/TATA_IJmuiden_CC23"
 
 # Metadata and reference files
 METADATA_PATH = f"{DBFS_DATA_BASE}/Castings_TSN_2025_April_May_merged.csv"
