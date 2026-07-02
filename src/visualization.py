@@ -553,6 +553,275 @@ class ReportVisualizer:
         return df_s.dropna(subset=["ptp_x_max", "ptp_x_min"])
 
     # ───────────────────────────────────────────────────────────────────────────
+    # Disturbed Sequence Individual Plots
+    # ───────────────────────────────────────────────────────────────────────────
+
+    def plot_disturbed_sequences_report(
+        self,
+        save_dir: str,
+        n_per_type: int = 6,
+        dpi: int = 150,
+    ) -> None:
+        """Generate individual PNG plots for representative disturbed sequences.
+
+        For each non-Normal disturbance type and each strand, selects n_per_type
+        representatives that cover the full \u03c3 range (min \u2192 max, evenly-spaced
+        quantiles).  Each figure is a single-panel Mold Level time-series with
+        a rich three-line title showing:
+          - Strand, sequence name, date/time window, \u03c3, PtP, severity rank
+          - Vc, mold width, SEN depth, Argon SEN, Argon Stopper, steel grade
+          - EMBR current averages (each coil separately)
+
+        Saves to:
+            <save_dir>/disturbed_sequences/<disturbance_type>/
+                Strand<x>_<seq_name>_start<YYYYMMDD_HHMM>_end<YYYYMMDD_HHMM>.png
+
+        Parameters
+        ----------
+        save_dir : str
+            Root output directory
+            (e.g. /dbfs/FileStore/Results/FCMold/TATA_IJmuiden_CC23)
+        n_per_type : int
+            Representatives per disturbance type per strand (default 6).
+            Selection is quantile-spaced by ML sigma so mild \u2192 severe are covered.
+        dpi : int
+            Figure resolution for saved PNGs (default 150).
+        """
+        import os
+        from matplotlib import dates as mdates
+        from .config import STRAND_CONFIGS
+
+        # ── colour palette by disturbance type ────────────────────────────────
+        _TYPE_COLOR = {
+            "Excursion":                                     "#c0392b",
+            "High variability":                              "#e67e22",
+            "Slow drift":                                    "#2980b9",
+            "Transient bump":                                "#8e44ad",
+            "Excursion + High variability":                  "#e74c3c",
+            "Excursion + Slow drift":                        "#1a6691",
+            "Excursion + Transient bump":                    "#6c3483",
+            "Excursion + Transient bump + High variability": "#922b21",
+            "Slow drift + High variability":                 "#117a65",
+        }
+        _DEFAULT_COLOR = "#2c3e50"
+
+        def _color_for(dtype: str) -> str:
+            return _TYPE_COLOR.get(dtype, _DEFAULT_COLOR)
+
+        def _sanitize_dirname(s: str) -> str:
+            """Make disturbance type name safe for a directory name."""
+            return s.replace(" + ", "_plus_").replace(" ", "_").replace("/", "-")
+
+        def _fmt_ts(ts, fmt: str = "%Y%m%d_%H%M") -> str:
+            if pd.isna(ts):
+                return "unknown"
+            return pd.Timestamp(ts).strftime(fmt)
+
+        def _select_representatives(df_type: pd.DataFrame, n: int) -> pd.DataFrame:
+            """Select n rows spaced evenly across the sigma range (min \u2192 max)."""
+            df_s = df_type.sort_values("MOLD_LEVEL_std [mm]").reset_index(drop=True)
+            n_actual = min(n, len(df_s))
+            if n_actual <= 1:
+                return df_s
+            if n_actual == len(df_s):
+                return df_s
+            indices = sorted(
+                set(
+                    int(round(i * (len(df_s) - 1) / (n_actual - 1)))
+                    for i in range(n_actual)
+                )
+            )
+            return df_s.iloc[indices].reset_index(drop=True)
+
+        total_saved = 0
+        thr = self.config.ml_stability_threshold_mm
+
+        for sid, res in self.all_results.items():
+            if not res["success"]:
+                continue
+            df_s = res["df_seq"]
+            df_r = res.get("df_raw")
+            name = res["strand_name"]  # e.g. "Strand 23-6"
+
+            if df_r is None or "Mold Level" not in df_r.columns:
+                print(f"[{name}] df_raw missing or has no Mold Level \u2014 skipping")
+                continue
+
+            # EMBR current columns from STRAND_CONFIGS (keyed by strand id "23_6")
+            scfg = STRAND_CONFIGS.get(sid)
+            embr_cols = [
+                c for c in (scfg.embr_current_cols if scfg else [])
+                if c in df_r.columns
+            ]
+            has_argon_sen     = "Argon Flow SEN"     in df_r.columns
+            has_argon_stopper = "Argon Flow Stopper" in df_r.columns
+
+            # Non-Normal sequences only
+            disturbed = df_s[df_s["disturbance_type"] != "Normal"]
+            if disturbed.empty:
+                print(f"[{name}] No disturbed sequences \u2014 nothing to plot")
+                continue
+
+            strand_tag = name.replace(" ", "").replace("-", "_")  # "Strand23_6"
+
+            for dtype in sorted(disturbed["disturbance_type"].unique()):
+                df_type = disturbed[disturbed["disturbance_type"] == dtype]
+                reps    = _select_representatives(df_type, n_per_type)
+                color   = _color_for(dtype)
+                type_dir = os.path.join(
+                    save_dir, "disturbed_sequences", _sanitize_dirname(dtype)
+                )
+                os.makedirs(type_dir, exist_ok=True)
+
+                print(
+                    f"  [{name}]  {dtype}: "
+                    f"{len(df_type)} sequences \u2192 plotting {len(reps)} representatives"
+                )
+
+                for rank, (_, row) in enumerate(reps.iterrows(), 1):
+                    t_start  = row["Seq_time_Start"]
+                    t_end    = row["Seq_time_End"]
+                    seq_name = row["Seq_Name"]
+
+                    # ── Slice raw time-series ──────────────────────────────
+                    mask = (
+                        (df_r["plainTimeStamp"] >= t_start)
+                        & (df_r["plainTimeStamp"] <= t_end)
+                    )
+                    seq = df_r[mask].sort_values("plainTimeStamp").copy()
+                    if len(seq) < 5:
+                        continue
+
+                    mean_ml = seq["Mold Level"].mean()
+
+                    # ── Per-sequence averages from df_raw ─────────────────
+                    argon_sen_avg = (
+                        seq["Argon Flow SEN"].mean() if has_argon_sen else float("nan")
+                    )
+                    argon_stopper_avg = (
+                        seq["Argon Flow Stopper"].mean() if has_argon_stopper else float("nan")
+                    )
+                    embr_avgs = {c: seq[c].mean() for c in embr_cols}
+
+                    # ── Title parameters ──────────────────────────────────
+                    vc    = row.get("CASTING_SPEED_avg [m/min]", float("nan"))
+                    width = row.get("MOLD_WIDTH_avg [m]",        float("nan"))
+                    sen   = row.get("SEN_avg [mm]",              float("nan"))
+                    sigma = row.get("MOLD_LEVEL_std [mm]",       float("nan"))
+                    ptp   = row.get("ptp_mm",                    float("nan"))
+                    grade = row.get("Quality casting", "N/A")
+                    if pd.isna(grade):
+                        grade = "N/A"
+
+                    start_lbl  = pd.Timestamp(t_start).strftime("%d-%b-%Y  %H:%M")
+                    end_lbl    = pd.Timestamp(t_end).strftime("%H:%M")
+                    sigma_rank = f"rank {rank}/{len(reps)} by \u03c3"
+
+                    line1 = (
+                        f"{name}   |   {seq_name}   |   "
+                        f"{start_lbl} \u2192 {end_lbl}   |   "
+                        f"\u03c3 = {sigma:.2f} mm   PtP = {ptp:.1f} mm   ({sigma_rank})"
+                    )
+
+                    params2 = []
+                    if not np.isnan(vc):              params2.append(f"Vc = {vc:.3f} m/min")
+                    if not np.isnan(width):           params2.append(f"Width = {width:.3f} m")
+                    if not np.isnan(sen):             params2.append(f"SEN = {sen:.0f} mm")
+                    if not np.isnan(argon_sen_avg):   params2.append(f"Arg SEN = {argon_sen_avg:.1f} L/min")
+                    if not np.isnan(argon_stopper_avg): params2.append(f"Arg Stopper = {argon_stopper_avg:.1f} L/min")
+                    params2.append(f"Grade = {grade}")
+                    line2 = "   |   ".join(params2)
+
+                    embr_parts = [
+                        f"{c.replace('EMBR Current ', '')} = {v:.0f} A"
+                        for c, v in embr_avgs.items()
+                        if not np.isnan(v)
+                    ]
+                    line3 = "EMBR:   " + "   |   ".join(embr_parts) if embr_parts else ""
+
+                    # ── Plot ──────────────────────────────────────────────
+                    fig, ax = plt.subplots(figsize=(14, 4.5))
+
+                    ax.plot(
+                        seq["plainTimeStamp"], seq["Mold Level"],
+                        color="#444444", linewidth=0.9, alpha=0.9,
+                    )
+
+                    # Light \u03c3 band around mean
+                    ax.axhspan(
+                        mean_ml - sigma, mean_ml + sigma,
+                        alpha=0.07, color=color, zorder=0,
+                    )
+
+                    # Mean line
+                    ax.axhline(
+                        mean_ml,
+                        color="#27ae60", linestyle="--", linewidth=1.5, alpha=0.85,
+                        label=f"Mean = {mean_ml:.1f} mm",
+                    )
+
+                    # \u00b1threshold lines
+                    ax.axhline(
+                        mean_ml + thr,
+                        color="#e74c3c", linestyle=":", linewidth=1.2, alpha=0.7,
+                        label=f"\u00b1{thr} mm threshold",
+                    )
+                    ax.axhline(
+                        mean_ml - thr,
+                        color="#e74c3c", linestyle=":", linewidth=1.2, alpha=0.7,
+                    )
+
+                    # X-axis: actual time
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+                    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+                    plt.setp(ax.get_xticklabels(), rotation=30, ha="right", fontsize=8)
+
+                    ax.set_xlabel("Time", fontsize=10)
+                    ax.set_ylabel("Mold Level [mm]", fontsize=10)
+
+                    # Y-limits with padding
+                    ml_vals = seq["Mold Level"]
+                    y_lo = min(ml_vals.min(), mean_ml - thr) - 3.0
+                    y_hi = max(ml_vals.max(), mean_ml + thr) + 3.0
+                    ax.set_ylim(y_lo, y_hi)
+
+                    ax.legend(fontsize=8, loc="upper right", framealpha=0.9)
+                    ax.spines[["top", "right"]].set_visible(False)
+                    ax.grid(axis="y", linestyle="--", alpha=0.25)
+
+                    # Disturbance type badge on right margin
+                    ax.text(
+                        1.002, 0.5, dtype,
+                        transform=ax.transAxes, rotation=90,
+                        va="center", ha="left", fontsize=8,
+                        color=color, fontweight="bold", alpha=0.75,
+                    )
+
+                    # Three-line suptitle
+                    title_lines = [line1, line2]
+                    if line3:
+                        title_lines.append(line3)
+                    fig.suptitle(
+                        "\n".join(title_lines),
+                        fontsize=8.5, x=0.5, y=1.04,
+                        ha="center", linespacing=1.7,
+                    )
+
+                    plt.tight_layout(rect=[0, 0, 0.995, 1.0])
+
+                    # ── Save ──────────────────────────────────────────────
+                    fname = (
+                        f"{strand_tag}_{seq_name}_"
+                        f"start{_fmt_ts(t_start)}_end{_fmt_ts(t_end)}.png"
+                    )
+                    fpath = os.path.join(type_dir, fname)
+                    fig.savefig(fpath, dpi=dpi, bbox_inches="tight", facecolor="white")
+                    plt.close(fig)
+                    total_saved += 1
+
+        print(f"\n  Saved {total_saved} figures -> {save_dir}/disturbed_sequences/")
+
+    # ───────────────────────────────────────────────────────────────────────────
     # Shared Helpers
     # ───────────────────────────────────────────────────────────────────────────
 
